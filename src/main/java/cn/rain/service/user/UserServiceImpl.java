@@ -4,7 +4,6 @@ import cn.rain.entity.Role;
 import cn.rain.entity.User;
 import cn.rain.repository.RoleRepository;
 import cn.rain.repository.UserRepository;
-import cn.rain.service.IUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.GrantedAuthority;

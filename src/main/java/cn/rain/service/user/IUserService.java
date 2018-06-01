@@ -1,4 +1,4 @@
-package cn.rain.service;
+package cn.rain.service.user;
 
 import cn.rain.entity.User;
 

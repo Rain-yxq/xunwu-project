@@ -1,7 +1,7 @@
 package cn.rain.security;
 
 import cn.rain.entity.User;
-import cn.rain.service.IUserService;
+import cn.rain.service.user.IUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.authentication.AuthenticationProvider;
