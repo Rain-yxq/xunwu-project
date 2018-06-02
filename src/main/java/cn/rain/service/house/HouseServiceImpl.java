@@ -12,6 +12,8 @@ import cn.rain.web.dto.HousePictureDTO;
 import cn.rain.web.form.DatatableSearch;
 import cn.rain.web.form.HouseForm;
 import cn.rain.web.form.PhotoForm;
+import com.qiniu.common.QiniuException;
+import com.qiniu.http.Response;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +23,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.persistence.criteria.Predicate;
 import java.util.ArrayList;
@@ -50,6 +53,8 @@ public class HouseServiceImpl implements IHouseService {
     private SubwayRepository subwayRepository;
     @Autowired
     private SubwayStationRepository subwayStationRepository;
+    @Autowired
+    private IQiNiuService qiNiuService;
 
     /**
      * 从配置文件中为该属性注入值
@@ -159,6 +164,181 @@ public class HouseServiceImpl implements IHouseService {
             houseDTOS.add(houseDTO);
         });
         return new ServiceMultiResult<>(houses.getTotalElements(), houseDTOS);
+    }
+
+    /**
+     * 查询完整的房源信息
+     * @param id 房源id
+     * @return 要查询房源的完整信息或错误结果
+     */
+    @Override
+    public ServiceResult<HouseDTO> findCompleteOne(Long id) {
+        House house = houseRepository.findOne(id);
+        if (house == null){
+            return ServiceResult.notFound();
+        }
+
+        HouseDetail detail = houseDetailRepository.findByHouseId(id);
+        List<HousePicture> pictures = housePictureRepository.findAllByHouseId(id);
+
+        HouseDetailDTO detailDTO = modelMapper.map(detail, HouseDetailDTO.class);
+        List<HousePictureDTO> pictureDTOS = new ArrayList<>();
+        for (HousePicture picture : pictures) {
+            HousePictureDTO pictureDTO = modelMapper.map(picture, HousePictureDTO.class);
+            pictureDTOS.add(pictureDTO);
+        }
+
+        List<HouseTag> tags = houseTagRepository.findAllByHouseId(id);
+        List<String> tagList = new ArrayList<>();
+        for (HouseTag tag : tags) {
+            tagList.add(tag.getName());
+        }
+
+        HouseDTO result = modelMapper.map(house, HouseDTO.class);
+        result.setHouseDetail(detailDTO);
+        result.setPictures(pictureDTOS);
+        result.setTags(tagList);
+
+        return ServiceResult.of(result);
+    }
+
+    /**
+     * 编辑房源的service接口
+     * @param houseForm 前端提交的新增房源的表单
+     * @return 操作结果
+     */
+    @Override
+    @Transactional
+    public ServiceResult update(HouseForm houseForm) {
+        House house = this.houseRepository.findOne(houseForm.getId());
+        if (house == null){
+            return ServiceResult.notFound();
+        }
+
+        HouseDetail detail = this.houseDetailRepository.findByHouseId(house.getId());
+        if (detail == null){
+            return ServiceResult.notFound();
+        }
+
+        ServiceResult<HouseDTO> wrapperResult = wrapperDetailInfo(detail, houseForm);
+        if (wrapperResult != null){
+            return wrapperResult;
+        }
+
+        houseDetailRepository.save(detail);
+
+        List<HousePicture> pictures = generatePictures(houseForm, houseForm.getId());
+        housePictureRepository.save(pictures);
+
+        modelMapper.map(houseForm, house);
+        house.setLastUpdateTime(new Date());
+        houseRepository.save(house);
+
+        return ServiceResult.success();
+    }
+
+    /**
+     * 移除图片
+     */
+    @Override
+    public ServiceResult removePhoto(Long id) {
+        HousePicture picture = housePictureRepository.findOne(id);
+        if (picture == null) {
+            return ServiceResult.notFound();
+        }
+
+        try {
+            Response response = this.qiNiuService.delete(picture.getPath());
+            if (response.isOK()) {
+                housePictureRepository.delete(id);
+                return ServiceResult.success();
+            } else {
+                return new ServiceResult(false, response.error);
+            }
+        } catch (QiniuException e) {
+            e.printStackTrace();
+            return new ServiceResult(false, e.getMessage());
+        }
+    }
+
+    /**
+     * 更新封面
+     */
+    @Override
+    @Transactional
+    public ServiceResult updateCover(Long coverId, Long targetId) {
+        HousePicture cover = housePictureRepository.findOne(coverId);
+        if (cover == null) {
+            return ServiceResult.notFound();
+        }
+
+        houseRepository.updateCover(targetId, cover.getPath());
+        return ServiceResult.success();
+    }
+
+    /**
+     * 新增标签
+     */
+    @Override
+    @Transactional
+    public ServiceResult addTag(Long houseId, String tag) {
+        House house = houseRepository.findOne(houseId);
+        if (house == null) {
+            return ServiceResult.notFound();
+        }
+
+        HouseTag houseTag = houseTagRepository.findByNameAndHouseId(tag, houseId);
+        if (houseTag != null) {
+            return new ServiceResult(false, "标签已存在");
+        }
+
+        houseTagRepository.save(new HouseTag(houseId, tag));
+        return ServiceResult.success();
+    }
+
+    /**
+     * 移除标签
+     */
+    @Override
+    @Transactional
+    public ServiceResult removeTag(Long houseId, String tag) {
+        House house = houseRepository.findOne(houseId);
+        if (house == null) {
+            return ServiceResult.notFound();
+        }
+
+        HouseTag houseTag = houseTagRepository.findByNameAndHouseId(tag, houseId);
+        if (houseTag == null) {
+            return new ServiceResult(false, "标签不存在");
+        }
+
+        houseTagRepository.delete(houseTag.getId());
+        return ServiceResult.success();
+    }
+
+    /**
+     * 更新房源状态
+     */
+    @Override
+    @Transactional
+    public ServiceResult updateStatus(Long id, int status) {
+        House house = houseRepository.findOne(id);
+        if (house == null){
+            return ServiceResult.notFound();
+        }
+
+        if (house.getStatus() == status){
+            return new ServiceResult(false, "状态没有发生变化");
+        }
+        if (house.getStatus() == HouseStatus.RENTED.getValue()) {
+            return new ServiceResult(false, "已出租的房屋不允许修改状态");
+        }
+        if (house.getStatus() == HouseStatus.DELETED.getValue()) {
+            return new ServiceResult(false, "已删除的房源不允许修改");
+        }
+
+        houseRepository.updateStatus(id, status);
+        return ServiceResult.success();
     }
 
     private ServiceResult<HouseDTO> wrapperDetailInfo(HouseDetail houseDetail, HouseForm houseForm) {
