@@ -1,6 +1,7 @@
 package cn.rain.repository;
 
 import cn.rain.entity.House;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.repository.PagingAndSortingRepository;
 
 /**
@@ -10,5 +11,5 @@ import org.springframework.data.repository.PagingAndSortingRepository;
  * @author 任伟
  * @date 2018/6/1 14:18
  */
-public interface HouseRepository extends PagingAndSortingRepository<House, Long> {
+public interface HouseRepository extends PagingAndSortingRepository<House, Long>, JpaSpecificationExecutor<House> {
 }
