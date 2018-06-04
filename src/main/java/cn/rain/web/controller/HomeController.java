@@ -5,12 +5,10 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 
 /**
- * Created by 瓦力.
+ * @author 任伟
  */
 @Controller
 public class HomeController {
-//    @Autowired
-//    private ISmsService smsService;
 
     @GetMapping(value = {"/", "/index"})
     public String index(Model model) {

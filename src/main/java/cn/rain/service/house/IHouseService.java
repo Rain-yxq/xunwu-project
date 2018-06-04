@@ -5,6 +5,7 @@ import cn.rain.base.ServiceResult;
 import cn.rain.web.dto.HouseDTO;
 import cn.rain.web.form.DatatableSearch;
 import cn.rain.web.form.HouseForm;
+import cn.rain.web.form.RentSearch;
 
 /**
  * description: 房屋管理接口
@@ -64,4 +65,9 @@ public interface IHouseService {
      * 更新房源状态
      */
     ServiceResult updateStatus(Long id, int status);
+
+    /**
+     * 查询房源信息的结果集
+     */
+    ServiceMultiResult<HouseDTO> query(RentSearch rentSearch);
 }

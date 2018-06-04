@@ -5,15 +5,25 @@ package cn.rain.web.form;
  * @author 任伟
  */
 public class RentSearch {
+    /** 城市名称 */
     private String cityEnName;
+    /** 地区名称 */
     private String regionEnName;
+    /** 价格区间 */
     private String priceBlock;
+    /** 面积区间 */
     private String areaBlock;
+    /** 房间数*/
     private int room;
+    /** 朝向 */
     private int direction;
+    /** 关键词 */
     private String keywords;
+    /** 租住方式 */
     private int rentWay = -1;
+    /** 默认排序字段 */
     private String orderBy = "lastUpdateTime";
+    /** 排序方式 */
     private String orderDirection = "desc";
 
     public int getDirection() {

@@ -1,9 +1,6 @@
 package cn.rain.service.house;
 
-import cn.rain.base.HouseStatus;
-import cn.rain.base.LoginUserUtil;
-import cn.rain.base.ServiceMultiResult;
-import cn.rain.base.ServiceResult;
+import cn.rain.base.*;
 import cn.rain.entity.*;
 import cn.rain.repository.*;
 import cn.rain.web.dto.HouseDTO;
@@ -12,6 +9,8 @@ import cn.rain.web.dto.HousePictureDTO;
 import cn.rain.web.form.DatatableSearch;
 import cn.rain.web.form.HouseForm;
 import cn.rain.web.form.PhotoForm;
+import cn.rain.web.form.RentSearch;
+import com.google.common.collect.Maps;
 import com.qiniu.common.QiniuException;
 import com.qiniu.http.Response;
 import org.modelmapper.ModelMapper;
@@ -29,6 +28,7 @@ import javax.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 /**
  * description:
@@ -64,6 +64,7 @@ public class HouseServiceImpl implements IHouseService {
 
     /**
      * 新增房源的service接口
+     *
      * @param houseForm 前端提交的新增房源的表单
      * @return 操作结果
      */
@@ -104,7 +105,7 @@ public class HouseServiceImpl implements IHouseService {
         houseDTO.setCover(this.cdnPrefix + houseDTO.getCover());
 
         List<String> tags = houseForm.getTags();
-        if (tags != null || !tags.isEmpty()){
+        if (tags != null || !tags.isEmpty()) {
             List<HouseTag> houseTags = new ArrayList<>();
             for (String tag : tags) {
                 houseTags.add(new HouseTag(house.getId(), tag));
@@ -117,6 +118,7 @@ public class HouseServiceImpl implements IHouseService {
 
     /**
      * 查看房源列表的service接口
+     *
      * @param searchBody DataTables插件规定的参数传输格式，这里使用该参数主要用于排序和分页
      * @return 房源列表对象
      */
@@ -168,13 +170,14 @@ public class HouseServiceImpl implements IHouseService {
 
     /**
      * 查询完整的房源信息
+     *
      * @param id 房源id
      * @return 要查询房源的完整信息或错误结果
      */
     @Override
     public ServiceResult<HouseDTO> findCompleteOne(Long id) {
         House house = houseRepository.findOne(id);
-        if (house == null){
+        if (house == null) {
             return ServiceResult.notFound();
         }
 
@@ -204,6 +207,7 @@ public class HouseServiceImpl implements IHouseService {
 
     /**
      * 编辑房源的service接口
+     *
      * @param houseForm 前端提交的新增房源的表单
      * @return 操作结果
      */
@@ -211,17 +215,17 @@ public class HouseServiceImpl implements IHouseService {
     @Transactional
     public ServiceResult update(HouseForm houseForm) {
         House house = this.houseRepository.findOne(houseForm.getId());
-        if (house == null){
+        if (house == null) {
             return ServiceResult.notFound();
         }
 
         HouseDetail detail = this.houseDetailRepository.findByHouseId(house.getId());
-        if (detail == null){
+        if (detail == null) {
             return ServiceResult.notFound();
         }
 
         ServiceResult<HouseDTO> wrapperResult = wrapperDetailInfo(detail, houseForm);
-        if (wrapperResult != null){
+        if (wrapperResult != null) {
             return wrapperResult;
         }
 
@@ -323,11 +327,11 @@ public class HouseServiceImpl implements IHouseService {
     @Transactional
     public ServiceResult updateStatus(Long id, int status) {
         House house = houseRepository.findOne(id);
-        if (house == null){
+        if (house == null) {
             return ServiceResult.notFound();
         }
 
-        if (house.getStatus() == status){
+        if (house.getStatus() == status) {
             return new ServiceResult(false, "状态没有发生变化");
         }
         if (house.getStatus() == HouseStatus.RENTED.getValue()) {
@@ -339,6 +343,63 @@ public class HouseServiceImpl implements IHouseService {
 
         houseRepository.updateStatus(id, status);
         return ServiceResult.success();
+    }
+
+    /**
+     * 查询房源信息的结果集
+     */
+    @Override
+    public ServiceMultiResult<HouseDTO> query(RentSearch rentSearch) {
+
+        Sort sort = HouseSort.generateSort(rentSearch.getOrderBy(), rentSearch.getOrderDirection());
+        int page = rentSearch.getStart() / rentSearch.getSize();
+
+        Pageable pageable = new PageRequest(page, rentSearch.getSize(), sort);
+
+        Specification<House> specification = (root, criteriaQuery, criteriaBuilder) -> {
+            Predicate predicate = criteriaBuilder.equal(root.get("status"), HouseStatus.PASSES.getValue());
+            criteriaBuilder.and(predicate, criteriaBuilder.equal(root.get("cityEnName"), rentSearch.getCityEnName()));
+
+            if(HouseSort.DISTANCE_TO_SUBWAY_KEY.equals(rentSearch.getOrderBy())){
+                predicate = criteriaBuilder.and(predicate, criteriaBuilder.gt(root.get(HouseSort.DISTANCE_TO_SUBWAY_KEY), -1));
+            }
+            return predicate;
+        };
+
+        Page<House> houses = houseRepository.findAll(specification, pageable);
+        List<HouseDTO> houseDTOS = new ArrayList<>();
+
+        List<Long> houseIds = new ArrayList<>();
+        Map<Long, HouseDTO> idToHouseMap = Maps.newHashMap();
+        houseDTOS.forEach(house -> {
+            HouseDTO houseDTO = modelMapper.map(house, HouseDTO.class);
+            houseDTO.setCover(this.cdnPrefix + house.getCover());
+            houseDTOS.add(houseDTO);
+
+            houseIds.add(house.getId());
+            idToHouseMap.put(house.getId(), houseDTO);
+        });
+        wrapperHouseList(houseIds, idToHouseMap);
+        return new ServiceMultiResult<>(houses.getTotalElements(), houseDTOS);
+    }
+
+
+    /**
+     * 渲染详细信息 及 标签
+     */
+    private void wrapperHouseList(List<Long> houseIds, Map<Long, HouseDTO> idToHouseMap) {
+        List<HouseDetail> details = houseDetailRepository.findAllByHouseIdIn(houseIds);
+        details.forEach(houseDetail -> {
+            HouseDTO houseDTO = idToHouseMap.get(houseDetail.getHouseId());
+            HouseDetailDTO detailDTO = modelMapper.map(houseDetail, HouseDetailDTO.class);
+            houseDTO.setHouseDetail(detailDTO);
+        });
+
+        List<HouseTag> houseTags = houseTagRepository.findAllByHouseIdIn(houseIds);
+        houseTags.forEach(houseTag -> {
+            HouseDTO house = idToHouseMap.get(houseTag.getHouseId());
+            house.getTags().add(houseTag.getName());
+        });
     }
 
     private ServiceResult<HouseDTO> wrapperDetailInfo(HouseDetail houseDetail, HouseForm houseForm) {
@@ -368,13 +429,13 @@ public class HouseServiceImpl implements IHouseService {
         return null;
     }
 
-    private List<HousePicture> generatePictures(HouseForm form, Long houseId){
+    private List<HousePicture> generatePictures(HouseForm form, Long houseId) {
         List<HousePicture> pictures = new ArrayList<>();
-        if (form.getPhotos() == null || form.getPhotos().isEmpty()){
+        if (form.getPhotos() == null || form.getPhotos().isEmpty()) {
             return pictures;
         }
 
-        for (PhotoForm photoForm : form.getPhotos()){
+        for (PhotoForm photoForm : form.getPhotos()) {
             HousePicture picture = new HousePicture();
             picture.setHouseId(houseId);
             picture.setCdnPrefix(cdnPrefix);

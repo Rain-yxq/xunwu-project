@@ -16,4 +16,6 @@ public interface HouseTagRepository extends CrudRepository<HouseTag, Long> {
     List<HouseTag> findAllByHouseId(Long id);
 
     HouseTag findByNameAndHouseId(String tag, Long houseId);
+
+    List<HouseTag> findAllByHouseIdIn(List<Long> houseIds);
 }
